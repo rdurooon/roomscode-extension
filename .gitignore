@@ -1,0 +1,20 @@
+# Dependências
+node_modules/
+
+# Build
+out/
+*.vsix
+
+# Variáveis de ambiente / segredos
+.env
+.env.*
+!.env.example
+
+# Editor / SO
+.vscode-test/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,63 @@
+{
+  "name": "roomscode-extension",
+  "displayName": "RoomsCode",
+  "description": "Transmita ao vivo, em tempo real, o código que você está editando para os espectadores de uma sala RoomsCode",
+  "version": "0.0.1",
+  "publisher": "rdurooon",
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rdurooon/roomscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "live share",
+    "teaching",
+    "classroom",
+    "screen share",
+    "streaming"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "roomscode.attach",
+        "title": "RoomsCode: Conectar a uma sala"
+      },
+      {
+        "command": "roomscode.attachCustomServer",
+        "title": "RoomsCode: Conectar a um servidor personalizado (avançado/desenvolvimento)"
+      },
+      {
+        "command": "roomscode.detach",
+        "title": "RoomsCode: Desconectar da sala"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --allow-missing-repository"
+  },
+  "dependencies": {
+    "diff-match-patch": "^1.0.5",
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {
+    "@types/diff-match-patch": "^1.0.36",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.4.0"
+  }
+}
