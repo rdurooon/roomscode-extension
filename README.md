@@ -1,44 +1,56 @@
 # RoomsCode para VS Code
 
-Extensão complementar da plataforma [RoomsCode](https://github.com/rdurooon/roomscode), usada pelo apresentador (Host) de uma aula ao vivo. Ela conecta o seu VS Code a uma sala RoomsCode e transmite, em tempo real, o conteúdo das abas abertas para os espectadores conectados naquela sala.
+![Demonstração: o código digitado no VS Code aparece em tempo real para os espectadores](images/demo.gif)
+
+Transmita ao vivo o código que você edita no VS Code para os espectadores de uma sala do [RoomsCode](https://roomscode.com). Eles acompanham pelo navegador, com destaque de sintaxe, e **não precisam instalar nada**.
 
 ## O que ela faz
 
-- Sincroniza **todas** as abas de código abertas no seu editor (não só a ativa), na mesma ordem em que aparecem no VS Code — inclusive se você reordenar as abas depois.
-- Atualiza o conteúdo continuamente enquanto você digita (com um pequeno debounce), enviando apenas as alterações — não o arquivo inteiro a cada tecla — e também sempre que você salva (`Ctrl+S`), como reforço de sincronização.
-- Envia a linha onde está o seu cursor, permitindo que os espectadores acompanhem automaticamente onde você está no código.
-- Restringe a sincronização a arquivos dentro da pasta/workspace atualmente aberta — um arquivo de fora desse workspace nunca chega aos espectadores.
+- Sincroniza **todas** as abas abertas, na mesma ordem do VS Code (inclusive quando você reordena).
+- Atualiza em tempo real enquanto você digita, enviando só o que mudou.
+- Envia a linha do seu cursor, para os espectadores acompanharem onde você está.
+- Compartilha apenas arquivos da pasta (workspace) aberta.
 
-Ela não compartilha sua tela; isso é feito separadamente pelo navegador, na página do Host do RoomsCode.
-
-## Requisitos
-
-- Uma sala já criada na página do Host do RoomsCode (`/anfitriao`), com o **código da extensão** em mãos — aparece atrás do botão fixo "Copiar código da extensão" na tela do Host (é diferente do código de sala, dado aos espectadores).
+> A extensão não compartilha a tela. Isso é feito pelo navegador, na página do Host.
 
 ## Como usar
 
-1. Instale a extensão (veja "Instalação" abaixo).
-2. Clique no botão **RoomsCode** na barra de status, no canto inferior esquerdo do VS Code — ou use o Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) e busque por "RoomsCode: Conectar a uma sala".
-3. Informe o **código da extensão**, copiado da tela do Host — é o único dado pedido.
-4. Uma notificação de progresso mostra o andamento da conexão; depois de conectado, o tooltip do botão da barra de status mostra a latência atual com o servidor.
-5. Abra ou edite arquivos normalmente — as abas abertas passam a ser transmitidas para a sala automaticamente.
-6. Para encerrar, clique novamente no botão da barra de status ou use o comando "RoomsCode: Desconectar da sala".
+1. Instale a extensão pela aba **Extensões** do VS Code (busque por "RoomsCode").
+2. Crie uma sala em [roomscode.com](https://roomscode.com) como **Host**.
+3. Na tela do Host, clique em **Copiar código da extensão**. Ele é diferente do código da sala que os espectadores usam.
 
-Se a conexão cair, a extensão tenta reconectar e reautenticar sozinha, sem precisar digitar o código de novo.
+   ![Botão "Copiar código da extensão" na tela do Host](images/copy-extension-code.png)
 
-### Usando outro servidor (avançado)
+4. No VS Code, clique em **Conectar-se a uma sala**, na barra de status (canto inferior esquerdo), ou use `Ctrl+Shift+P` / `Cmd+Shift+P` e busque por "RoomsCode: Conectar a uma sala". Cole o código.
 
-Por padrão a extensão sempre se conecta a `https://roomscode.com`. Para apontar pra outro servidor (ex: uma instância própria em desenvolvimento), use o Command Palette com o comando **"RoomsCode: Conectar a um servidor personalizado (avançado/desenvolvimento)"**.
+   ![Conectando o VS Code a uma sala](images/connect.gif)
 
-## Instalação
+5. Pronto: uma notificação confirma a conexão e suas abas passam a ser transmitidas.
+6. Para encerrar, clique em **Desconectar-se da sala**, na barra de status.
 
-1. Baixe o arquivo `.vsix` pelo botão de download na tela do Host, em roomscode.com.
-2. No VS Code, abra o Command Palette e selecione **Extensions: Install from VSIX...**, e selecione o arquivo baixado. Ou, via terminal: `code --install-extension roomscode-extension-0.0.1.vsix`.
+Se a conexão cair, a extensão reconecta sozinha, sem pedir o código de novo. Com a conexão ativa, passe o mouse sobre o botão da barra de status para ver a latência com o servidor.
 
-> Por enquanto isso cobre só o lado do Host. O Espectador não precisa de extensão nenhuma.
+![Os dois estados do botão na barra de status](images/status-bar.png)
 
-## Observações de segurança
+## Comandos
 
-- A extensão só transmite o que está aberto no editor — nada é lido do disco além disso, e nada fora do workspace atual.
-- O token da extensão (código copiado pelo botão "Copiar código da extensão") autentica a conexão e já identifica sozinho qual sala é — sem ele, o backend rejeita qualquer tentativa de publicar conteúdo de arquivo.
-- Fechar o VS Code ou usar o comando de desconectar encerra a transmissão imediatamente; a sala em si continua ativa até o Host encerrá-la pelo navegador.
+| Comando | O que faz |
+|---|---|
+| `RoomsCode: Conectar a uma sala` | Conecta o VS Code à sala, usando o código da extensão. |
+| `RoomsCode: Desconectar da sala` | Encerra a transmissão. A sala continua até o Host encerrá-la no navegador. |
+| `RoomsCode: Conectar a um servidor personalizado (avançado/desenvolvimento)` | Usa outro servidor no lugar de `https://roomscode.com`. |
+
+## Requisitos
+
+- VS Code 1.85 ou superior.
+- Uma sala criada na página do Host.
+
+## Privacidade e segurança
+
+- Só o que está aberto no editor é transmitido, e apenas arquivos dentro do workspace atual. Nada é lido do disco além disso.
+- O código da extensão autentica a conexão e já identifica a sala. Sem ele, o servidor recusa qualquer envio de conteúdo.
+- Fechar o VS Code ou desconectar encerra a transmissão na hora.
+
+## Feedback
+
+Encontrou um problema ou tem uma sugestão? Abra uma [issue no GitHub](https://github.com/rdurooon/roomscode-extension/issues). Licença [MIT](LICENSE).

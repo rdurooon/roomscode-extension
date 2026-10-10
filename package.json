@@ -2,7 +2,7 @@
   "name": "roomscode-extension",
   "displayName": "RoomsCode",
   "description": "Transmita ao vivo, em tempo real, o código que você está editando para os espectadores de uma sala RoomsCode",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "rdurooon",
   "license": "MIT",
   "icon": "icon.png",
