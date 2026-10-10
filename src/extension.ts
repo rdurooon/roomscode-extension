@@ -42,7 +42,35 @@ interface OpenTab {
     filename: string;
     language: string;
     content: string;
+    path: string;
 }
+
+// Árvore do workspace (botão "Diretório" do espectador): só nomes, nunca conteúdo.
+interface TreeNode {
+    name: string;
+    type: 'dir' | 'file';
+    blocked?: boolean;
+    children?: TreeNode[];
+}
+
+// Pastas que aparecem na árvore, mas sem listar o que há dentro (pesadas ou geradas).
+const BLOCKED_FOLDER_NAMES = new Set([
+    'node_modules',
+    '.venv',
+    'venv',
+    '.git',
+    '__pycache__',
+    '.mypy_cache',
+    '.pytest_cache',
+    '.tox',
+    '.next',
+    '.nuxt',
+]);
+const MAX_TREE_NODES = 4000; // mesmo teto padrão do servidor (MAX_TREE_NODES)
+const MAX_TREE_DEPTH = 20;
+const TREE_DEBOUNCE_MS = 800;
+let treeDebounceTimer: NodeJS.Timeout | undefined;
+let treeBuildSeq = 0;
 
 export function activate(context: vscode.ExtensionContext) {
     // Botão na barra de status; texto e ação mudam conforme o estado de conexão. Usa $(vm-connect) (único ícone codicon aplicável).
@@ -61,11 +89,24 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.onDidChangeActiveTextEditor(handleActiveEditorChange),
         vscode.window.onDidChangeTextEditorSelection(handleSelectionChange),
         vscode.workspace.onDidChangeTextDocument(handleDocumentChange),
-        vscode.workspace.onDidSaveTextDocument(handleDocumentSave)
+        vscode.workspace.onDidSaveTextDocument(handleDocumentSave),
+        vscode.workspace.onDidChangeWorkspaceFolders(() => {
+            sendTabsList();
+            scheduleWorkspaceTreeSend();
+        })
     );
+
+    // Só criação/remoção (inclui renomear/mover) muda a árvore; edições de conteúdo são ignoradas.
+    const treeWatcher = vscode.workspace.createFileSystemWatcher('**/*', false, true, false);
+    treeWatcher.onDidCreate((uri) => handleTreeFsEvent(uri));
+    treeWatcher.onDidDelete((uri) => handleTreeFsEvent(uri));
+    context.subscriptions.push(treeWatcher);
 }
 
 export function deactivate() {
+    if (treeDebounceTimer) {
+        clearTimeout(treeDebounceTimer);
+    }
     socket?.disconnect();
 }
 
@@ -170,6 +211,7 @@ async function connectToServer(serverUrl: string) {
                     updateStatusBarItem();
                     startLatencyProbing();
                     sendTabsList();
+                    sendWorkspaceTree();
                     sendCursorLine(vscode.window.activeTextEditor);
                     finish();
                 });
@@ -249,6 +291,10 @@ function detachFromRoom() {
     lastLatencyMs = undefined;
     stopLatencyProbing();
     lastSentContentByTab.clear();
+    if (treeDebounceTimer) {
+        clearTimeout(treeDebounceTimer);
+        treeDebounceTimer = undefined;
+    }
     vscode.window.showInformationMessage('RoomsCode: desconectado da sala.');
     updateStatusBarItem();
 }
@@ -281,6 +327,19 @@ function tabIdFor(document: vscode.TextDocument): string {
 /** Uma aba só é compartilhada se pertencer a um workspace folder aberto, evitando vazar arquivos "de fora". */
 function isWithinOpenWorkspace(uri: vscode.Uri): boolean {
     return vscode.workspace.getWorkspaceFolder(uri) !== undefined;
+}
+
+/**
+ * Caminho do arquivo dentro do workspace, no formato "<pasta raiz>/<subpastas>/<arquivo>" (sempre com "/").
+ * É a chave que liga a aba aberta ao arquivo da árvore do diretório; nunca inclui o caminho absoluto.
+ */
+function workspacePathFor(uri: vscode.Uri): string {
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    if (!folder) {
+        return '';
+    }
+    const relative = path.relative(folder.uri.fsPath, uri.fsPath).split(path.sep).join('/');
+    return relative ? `${folder.name}/${relative}` : folder.name;
 }
 
 async function collectOpenTabs(): Promise<OpenTab[]> {
@@ -317,6 +376,7 @@ async function collectOpenTabs(): Promise<OpenTab[]> {
                 filename: path.basename(doc.fileName),
                 language: doc.languageId,
                 content: doc.getText(),
+                path: workspacePathFor(input.uri),
             });
         }
     }
@@ -332,6 +392,128 @@ async function sendTabsList() {
     tabs.forEach((tab) => lastSentContentByTab.set(tab.tabId, tab.content));
 
     socket?.emit('tabs_full_state', { room_code: roomCode, tabs });
+}
+
+// ---- Árvore do workspace (botão "Diretório") ----
+
+function isBlockedFolderName(name: string): boolean {
+    return BLOCKED_FOLDER_NAMES.has(name.toLowerCase());
+}
+
+/** Eventos de criação/remoção dentro de pasta bloqueada (ex.: npm install) não mudam a árvore. */
+function handleTreeFsEvent(uri: vscode.Uri) {
+    if (!socket || !roomCode) {
+        return;
+    }
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    if (!folder) {
+        return;
+    }
+    const segments = path.relative(folder.uri.fsPath, uri.fsPath).split(path.sep);
+    // A própria pasta bloqueada aparecer/sumir conta; o que acontece dentro dela não.
+    if (segments.slice(0, -1).some(isBlockedFolderName)) {
+        return;
+    }
+    scheduleWorkspaceTreeSend();
+}
+
+function scheduleWorkspaceTreeSend() {
+    if (!socket || !roomCode) {
+        return;
+    }
+    if (treeDebounceTimer) {
+        clearTimeout(treeDebounceTimer);
+    }
+    treeDebounceTimer = setTimeout(() => {
+        treeDebounceTimer = undefined;
+        void sendWorkspaceTree();
+    }, TREE_DEBOUNCE_MS);
+}
+
+async function readTreeChildren(
+    dirUri: vscode.Uri,
+    depth: number,
+    counter: { count: number; truncated: boolean }
+): Promise<TreeNode[]> {
+    let entries: [string, vscode.FileType][];
+    try {
+        entries = await vscode.workspace.fs.readDirectory(dirUri);
+    } catch {
+        return []; // sem permissão ou pasta removida durante a leitura
+    }
+
+    // Mesma ordem do Explorer do VS Code: pastas primeiro, depois arquivos, cada grupo em ordem alfabética.
+    entries.sort((a, b) => {
+        const aIsDir = (a[1] & vscode.FileType.Directory) !== 0;
+        const bIsDir = (b[1] & vscode.FileType.Directory) !== 0;
+        if (aIsDir !== bIsDir) {
+            return aIsDir ? -1 : 1;
+        }
+        return a[0].localeCompare(b[0], undefined, { sensitivity: 'base' });
+    });
+
+    const nodes: TreeNode[] = [];
+    for (const [name, type] of entries) {
+        if (counter.count >= MAX_TREE_NODES) {
+            counter.truncated = true;
+            break;
+        }
+        counter.count++;
+
+        const isDir = (type & vscode.FileType.Directory) !== 0;
+        if (!isDir) {
+            nodes.push({ name, type: 'file' });
+            continue;
+        }
+
+        // Pasta bloqueada (ou link simbólico, que pode formar ciclo): aparece, mas sem listar o conteúdo.
+        const isSymlink = (type & vscode.FileType.SymbolicLink) !== 0;
+        if (isBlockedFolderName(name) || isSymlink) {
+            nodes.push({ name, type: 'dir', blocked: true });
+            continue;
+        }
+
+        if (depth >= MAX_TREE_DEPTH) {
+            counter.truncated = true;
+            nodes.push({ name, type: 'dir', children: [] });
+            continue;
+        }
+
+        nodes.push({
+            name,
+            type: 'dir',
+            children: await readTreeChildren(vscode.Uri.joinPath(dirUri, name), depth + 1, counter),
+        });
+    }
+    return nodes;
+}
+
+/** Manda a árvore dos workspace folders abertos (lista vazia se não há workspace). */
+async function sendWorkspaceTree() {
+    if (!socket || !roomCode) {
+        return;
+    }
+
+    const seq = ++treeBuildSeq;
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const counter = { count: 0, truncated: false };
+    const roots: TreeNode[] = [];
+
+    for (const folder of folders) {
+        counter.count++;
+        roots.push({
+            name: folder.name,
+            type: 'dir',
+            children: await readTreeChildren(folder.uri, 1, counter),
+        });
+    }
+
+    // Uma montagem mais nova já começou (ou a conexão caiu) enquanto esta lia o disco: descarta.
+    if (seq !== treeBuildSeq || !socket || !roomCode) {
+        return;
+    }
+
+    socket.emit('workspace_tree', { room_code: roomCode, tree: roots, truncated: counter.truncated });
 }
 
 function handleActiveEditorChange(editor: vscode.TextEditor | undefined) {
@@ -431,6 +613,7 @@ function sendFullContentFor(document: vscode.TextDocument) {
         filename: path.basename(document.fileName),
         language: document.languageId,
         content,
+        path: workspacePathFor(document.uri),
     });
 }
 
